@@ -1,13 +1,12 @@
-# see https://symfony.com/doc/current/reference/configuration/framework.html
 framework:
     secret: '%env(APP_SECRET)%'
 
-    # Note that the session will be started ONLY if you read or write from it.
-    session: true
+    session:
+        name: 'BILEMOSESSID' 
+        cookie_secure: auto 
+        cookie_httponly: true
 
-    #esi: true
-    #fragments: true
-
+# Configuration pour l'environnement de test
 when@test:
     framework:
         test: true
