@@ -153,10 +153,6 @@ final class UserController extends AbstractController
         // Si "find" ne trouve pas le client, alors null sera retourné.
         $user->setClient($clientRepository->find($idClient));
 
-        if ($user->getCreatedAt() === null) {
-            $user->setCreatedAt(new \DateTimeImmutable());
-        }
-
         //On vérifie les erreurs
         $errors = $validator->validate($user);
 
