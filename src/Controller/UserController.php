@@ -109,13 +109,14 @@ final class UserController extends AbstractController
     #[OA\RequestBody(
         required: true,
         content: new OA\JsonContent(
-            examples: [
-                new OA\Examples(
-                    example: '{"email":"user@example.com","password":"monMotDePasse123","roles":["ROLE_USER"],"idClient":1}',
-                    summary: 'Exemple de création d\'utilisateur'
-                )
+            properties: [
+                new OA\Property(property: 'name', type: 'string', example: 'hello'),
+                new OA\Property(property: 'email', type: 'string', example: 'test@example.com'),
+                new OA\Property(property: 'password', type: 'string', example: 'MotDePasse123!'),
+                new OA\Property(property: 'createdAt', type: 'string', format: 'date-time', example: '2025-06-30T12:00:00+00:00'),
+                new OA\Property(property: 'idClient', type: 'integer', example: 30),
             ],
-            ref: new Model(type: User::class, groups: ['getUsers'])
+            type: 'object'
         )
     )]
 
@@ -142,13 +143,6 @@ final class UserController extends AbstractController
 
         $user = $serializer->deserialize($request->getContent(), User::class, 'json');
 
-        //On vérifie les erreurs
-        $errors = $validator->validate($user);
-
-        if ($errors->count() > 0) {
-            return new JsonResponse($serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
-        }
-
         // Récupération de l'ensemble des données envoyées sous forme de tableau
         $content = $request->toArray();
 
@@ -158,6 +152,17 @@ final class UserController extends AbstractController
         // On cherche le client qui correspond et on l'assigne au user.
         // Si "find" ne trouve pas le client, alors null sera retourné.
         $user->setClient($clientRepository->find($idClient));
+
+        if ($user->getCreatedAt() === null) {
+            $user->setCreatedAt(new \DateTimeImmutable());
+        }
+
+        //On vérifie les erreurs
+        $errors = $validator->validate($user);
+
+        if ($errors->count() > 0) {
+            return new JsonResponse($serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
+        }
 
         $em->persist($user);
         $em->flush();
