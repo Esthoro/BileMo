@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use App\Entity\Client;
 use App\Entity\User;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\ORM\Tools\Pagination\Paginator;
@@ -20,11 +21,15 @@ class UserRepository extends ServiceEntityRepository
     /**
      * @return User[]
      */
-    public function findAllWithPagination(int $page, int $limit) : array {
-        $qb = $this->createQueryBuilder('b');
-        $qb->setFirstResult(($page - 1) * $limit)
-            ->setMaxResults($limit);
-        return $qb->getQuery()->getResult();
+    public function findByClientWithPagination(Client $client, int $page, int $limit): array
+    {
+        return $this->createQueryBuilder('p')
+            ->andWhere('p.client = :client')
+            ->setParameter('client', $client)
+            ->setFirstResult(($page - 1) * $limit)
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
     }
 
 }
