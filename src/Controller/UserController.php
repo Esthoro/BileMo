@@ -19,9 +19,39 @@ use Symfony\Contracts\Cache\ItemInterface;
 use Symfony\Contracts\Cache\TagAwareCacheInterface;
 use Nelmio\ApiDocBundle\Attribute\Model;
 use OpenApi\Attributes as OA;
+use Symfony\Bundle\SecurityBundle\Security;
 
 final class UserController extends AbstractController
 {
+    private UserRepository $userRepository;
+    private ClientRepository $clientRepository;
+    private EntityManagerInterface $em;
+    private SerializerInterface $serializer;
+    private ValidatorInterface $validator;
+    private TagAwareCacheInterface $cachePool;
+    private UrlGeneratorInterface $urlGenerator;
+    private Security $security;
+
+    public function __construct(
+        UserRepository $userRepository,
+        ClientRepository $clientRepository,
+        EntityManagerInterface $em,
+        SerializerInterface $serializer,
+        ValidatorInterface $validator,
+        TagAwareCacheInterface $cachePool,
+        UrlGeneratorInterface $urlGenerator,
+        Security $security
+    ) {
+        $this->userRepository = $userRepository;
+        $this->clientRepository = $clientRepository;
+        $this->em = $em;
+        $this->serializer = $serializer;
+        $this->validator = $validator;
+        $this->cachePool = $cachePool;
+        $this->urlGenerator = $urlGenerator;
+        $this->security = $security;
+    }
+
     #[OA\Response(
         response: 200,
         description: 'Retourne la liste des utilisateurs',
@@ -44,18 +74,19 @@ final class UserController extends AbstractController
     )]
     #[OA\Tag(name: 'Users')]
     #[Route('/api/users', name: 'app_user', methods: ['GET'])]
-    public function getAllUsers(UserRepository $userRepository, SerializerInterface $serializer, Request $request, TagAwareCacheInterface $cachePool): JsonResponse
+    public function getAllUsers(Request $request): JsonResponse
     {
         $page = $request->get('page', 1);
         $limit = $request->get('limit', 3);
 
         $idCache = "getAllUsers-" . $page . "-" . $limit;
 
-        $jsonUserList = $cachePool->get($idCache, function(ItemInterface $item) use ($userRepository, $page, $limit, $serializer) {
+        $jsonUserList = $this->cachePool->get($idCache, function(ItemInterface $item) use ($page, $limit) {
+            $connectedClient = $this->security->getUser();
             $item->tag('usersCache');
-            $userList = $userRepository->findAllWithPagination($page, $limit);
+            $userList = $this->userRepository->findByClientWithPagination($connectedClient, $page, $limit);
             $context = SerializationContext::create()->setGroups(['getUsers']);
-            return $serializer->serialize($userList, 'json', $context);
+            return $this->serializer->serialize($userList, 'json', $context);
         });
 
 
@@ -78,10 +109,14 @@ final class UserController extends AbstractController
     )]
     #[OA\Tag(name: 'Users')]
     #[Route('/api/users/{id}', name: 'app_detail_user', methods: ['GET'])]
-    public function getDetailUser(User $user, SerializerInterface $serializer): JsonResponse
+    public function getDetailUser(User $user): JsonResponse
     {
+        $connectedClient = $this->security->getUser();
+        if ($user->getClient() !== $connectedClient) {
+            return new JsonResponse(['error' => 'Access denied.'], Response::HTTP_FORBIDDEN);
+        }
         $context = SerializationContext::create()->setGroups(['getUsers']);
-        $jsonUser = $serializer->serialize($user, 'json', $context);
+        $jsonUser = $this->serializer->serialize($user, 'json', $context);
         return new JsonResponse($jsonUser, Response::HTTP_OK, ['accept' => 'json'], true);
     }
 
@@ -98,11 +133,11 @@ final class UserController extends AbstractController
     )]
     #[OA\Tag(name: 'Users')]
     #[Route('/api/users/{id}', name: 'app_delete_user', methods: ['DELETE'])]
-    public function deleteUser(User $user, EntityManagerInterface $em, TagAwareCacheInterface $cachePool): JsonResponse
+    public function deleteUser(User $user): JsonResponse
     {
-        $cachePool->invalidateTags(['usersCache']);
-        $em->remove($user);
-        $em->flush();
+        $this->cachePool->invalidateTags(['usersCache']);
+        $this->em->remove($user);
+        $this->em->flush();
         return new JsonResponse(null, Response::HTTP_NO_CONTENT);
     }
 
@@ -119,7 +154,6 @@ final class UserController extends AbstractController
             type: 'object'
         )
     )]
-
     #[OA\Response(
         response: 201,
         description: 'Utilisateur créé',
@@ -137,39 +171,38 @@ final class UserController extends AbstractController
     )]
     #[OA\Tag(name: 'Users')]
     #[Route('/api/users', name: 'app_create_user', methods: ['POST'])]
-    public function createUser(Request $request, SerializerInterface $serializer, EntityManagerInterface $em, UrlGeneratorInterface $urlGenerator,
-    ClientRepository $clientRepository, ValidatorInterface $validator, TagAwareCacheInterface $cachePool): JsonResponse
+    public function createUser(Request $request): JsonResponse
     {
 
-        $user = $serializer->deserialize($request->getContent(), User::class, 'json');
+        $user = $this->serializer->deserialize($request->getContent(), User::class, 'json');
 
         // Récupération de l'ensemble des données envoyées sous forme de tableau
         $content = $request->toArray();
 
-        // Récupération de l'idAuthor. S'il n'est pas défini, alors on met -1 par défaut.
-        $idClient = $content['idClient'] ?? -1;
-
+        // Récupération de l'idClient.
         // On cherche le client qui correspond et on l'assigne au user.
         // Si "find" ne trouve pas le client, alors null sera retourné.
-        $user->setClient($clientRepository->find($idClient));
-
-        //On vérifie les erreurs
-        $errors = $validator->validate($user);
-
-        if ($errors->count() > 0) {
-            return new JsonResponse($serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
+        if (isset($content['idClient'])) {
+            $user->setClient($this->clientRepository->find($content['idClient']));
         }
 
-        $em->persist($user);
-        $em->flush();
+        //On vérifie les erreurs
+        $errors = $this->validator->validate($user);
+
+        if ($errors->count() > 0) {
+            return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
+        }
+
+        $this->em->persist($user);
+        $this->em->flush();
 
         $context = SerializationContext::create()->setGroups(['getUsers']);
 
-        $jsonUser = $serializer->serialize($user, 'json', $context);
+        $jsonUser = $this->serializer->serialize($user, 'json', $context);
 
-        $location = $urlGenerator->generate('app_detail_user', ['id' => $user->getId()], UrlGeneratorInterface::ABSOLUTE_URL);
+        $location = $this->urlGenerator->generate('app_detail_user', ['id' => $user->getId()], UrlGeneratorInterface::ABSOLUTE_URL);
 
-        $cachePool->invalidateTags(['usersCache']);
+        $this->cachePool->invalidateTags(['usersCache']);
 
         return new JsonResponse($jsonUser, Response::HTTP_CREATED, ["Location" => $location], true);
     }

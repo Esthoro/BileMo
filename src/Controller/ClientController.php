@@ -19,6 +19,21 @@ use OpenApi\Attributes as OA;
 
 final class ClientController extends AbstractController
 {
+
+    private ClientRepository $clientRepository;
+    private SerializerInterface $serializer;
+
+    private TagAwareCacheInterface $cachePool;
+
+    public function __construct(
+        ClientRepository $clientRepository,
+        SerializerInterface $serializer,
+        TagAwareCacheInterface $cachePool
+    ) {
+        $this->clientRepository = $clientRepository;
+        $this->serializer = $serializer;
+        $this->cachePool = $cachePool;
+    }
     #[OA\Response(
         response: 200,
         description: 'Retourne la liste des clients',
@@ -41,18 +56,18 @@ final class ClientController extends AbstractController
     )]
     #[OA\Tag(name: 'Clients')]
     #[Route('api/clients', name: 'app_client', methods: ['GET'])]
-    public function getAllClients(ClientRepository $clientRepository, SerializerInterface $serializer, Request $request, TagAwareCacheInterface $cachePool): JsonResponse
+    public function getAllClients(Request $request): JsonResponse
     {
         $page = $request->get('page', 1);
         $limit = $request->get('limit', 3);
 
         $idCache = "getAllClients-" . $page . "-" . $limit;
 
-        $jsonClientList = $cachePool->get($idCache, function(ItemInterface $item) use ($clientRepository, $page, $limit, $serializer) {
+        $jsonClientList = $this->cachePool->get($idCache, function(ItemInterface $item) use ($page, $limit) {
             $item->tag('clientsCache');
-            $clientList = $clientRepository->findAllWithPagination($page, $limit);
+            $clientList = $this->clientRepository->findAllWithPagination($page, $limit);
             $context = SerializationContext::create()->setGroups(['getClients']);
-            return $serializer->serialize($clientList, 'json', $context);
+            return $this->serializer->serialize($clientList, 'json', $context);
         });
 
         return new JsonResponse($jsonClientList, Response::HTTP_OK, [], true);
@@ -74,10 +89,10 @@ final class ClientController extends AbstractController
     )]
     #[OA\Tag(name: 'Clients')]
     #[Route('/api/clients/{id}', name: 'app_detail_client', methods: ['GET'])]
-    public function getDetailClient(Client $client, SerializerInterface $serializer): JsonResponse
+    public function getDetailClient(Client $client): JsonResponse
     {
         $context = SerializationContext::create()->setGroups(['getClients']);
-        $jsonClient = $serializer->serialize($client, 'json', $context);
+        $jsonClient = $this->serializer->serialize($client, 'json', $context);
         return new JsonResponse($jsonClient, Response::HTTP_OK, ['accept' => 'json'], true);
     }
 }

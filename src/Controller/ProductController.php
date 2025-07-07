@@ -17,6 +17,20 @@ use OpenApi\Attributes as OA;
 
 final class ProductController extends AbstractController
 {
+    private ProductRepository $productRepository;
+    private SerializerInterface $serializer;
+
+    private TagAwareCacheInterface $cachePool;
+
+    public function __construct(
+        ProductRepository $productRepository,
+        SerializerInterface $serializer,
+        TagAwareCacheInterface $cachePool
+    ) {
+        $this->productRepository = $productRepository;
+        $this->serializer = $serializer;
+        $this->cachePool = $cachePool;
+    }
     #[OA\Response(
         response: 200,
         description: 'Retourne la liste des produits',
@@ -39,17 +53,17 @@ final class ProductController extends AbstractController
     )]
     #[OA\Tag(name: 'Produits')]
     #[Route('/api/products', name: 'app_product', methods: ['GET'])]
-    public function getAllProducts(ProductRepository $productRepository, SerializerInterface $serializer, Request $request, TagAwareCacheInterface $cachePool): JsonResponse
+    public function getAllProducts(Request $request): JsonResponse
     {
         $page = $request->get('page', 1);
         $limit = $request->get('limit', 3);
 
         $idCache = "getAllProducts-" . $page . "-" . $limit;
 
-        $jsonProductList = $cachePool->get($idCache, function(ItemInterface $item) use ($productRepository, $page, $limit, $serializer) {
+        $jsonProductList = $this->cachePool->get($idCache, function(ItemInterface $item) use ($page, $limit) {
             $item->tag('productsCache');
-            $productList = $productRepository->findAllWithPagination($page, $limit);
-            return $serializer->serialize($productList, 'json');
+            $productList = $this->productRepository->findAllWithPagination($page, $limit);
+            return $this->serializer->serialize($productList, 'json');
         });
 
         return new JsonResponse($jsonProductList, Response::HTTP_OK, [], true);
@@ -71,9 +85,9 @@ final class ProductController extends AbstractController
     )]
     #[OA\Tag(name: 'Produits')]
     #[Route('/api/products/{id}', name: 'app_detail_product', methods: ['GET'])]
-    public function getDetailProduct(Product $product, SerializerInterface $serializer): JsonResponse
+    public function getDetailProduct(Product $product): JsonResponse
     {
-        $jsonProduct = $serializer->serialize($product, 'json');
+        $jsonProduct = $this->serializer->serialize($product, 'json');
         return new JsonResponse($jsonProduct, Response::HTTP_OK, ['accept' => 'json'], true);
     }
 }
